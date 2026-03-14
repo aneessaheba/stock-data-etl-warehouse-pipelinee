@@ -168,7 +168,7 @@ def transform_fact_stock_prices(raw_df: pd.DataFrame) -> pd.DataFrame:
     df = df.drop_duplicates(subset=["Date", "Symbol"])
     df = df.sort_values(["Symbol", "Date"]).reset_index(drop=True)
 
-    # Derived: daily return %
+    # Derived: intraday return % (open-to-close, NOT close-to-close daily return)
     df["Daily_Return_Pct"] = (
         (df["Close"] - df["Open"]) / df["Open"] * 100
     ).round(4)

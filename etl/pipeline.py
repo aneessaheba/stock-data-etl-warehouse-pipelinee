@@ -14,6 +14,7 @@ import argparse
 import logging
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -45,7 +46,7 @@ logger = logging.getLogger("pipeline")
 
 def run(
     start: str = "2010-01-01",
-    end: str = "2024-12-31",
+    end: str | None = None,
     use_cache: bool = True,
     load_db: bool = True,
 ) -> dict:
@@ -63,6 +64,9 @@ def run(
     -------
     dict with all four transformed DataFrames
     """
+    if end is None:
+        end = datetime.today().strftime("%Y-%m-%d")
+
     t0 = time.time()
     logger.info("=" * 60)
     logger.info("Stock Market ETL Pipeline — START")
@@ -119,7 +123,7 @@ if __name__ == "__main__":
     parser.add_argument("--no-db",   action="store_true",
                         help="Skip PostgreSQL load (CSV export only)")
     parser.add_argument("--start",   default="2010-01-01", help="Start date (YYYY-MM-DD)")
-    parser.add_argument("--end",     default="2024-12-31", help="End date (YYYY-MM-DD)")
+    parser.add_argument("--end",     default=None, help="End date (YYYY-MM-DD), defaults to today")
     args = parser.parse_args()
 
     results = run(
