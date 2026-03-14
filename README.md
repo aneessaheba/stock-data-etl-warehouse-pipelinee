@@ -1,6 +1,6 @@
 # Stock Market Data Warehouse & ETL Pipeline
 
-An end-to-end data engineering project covering **batch ETL**, **real-time streaming**, and **analytical warehousing** for 9 major NASDAQ stocks. Built collaboratively across two repos ([aneessaheba](https://github.com/aneessaheba/stock-data-etl-warehouse-pipelinee) + [jayhemnani9910](https://github.com/jayhemnani9910/stock-data-platform)).
+An end-to-end data engineering project covering **batch ETL**, **real-time streaming**, and **analytical warehousing** for 9 major NASDAQ stocks.
 
 ---
 
@@ -625,4 +625,3 @@ Only 4 of the 9 tracked companies pay dividends — the rest reinvest all earnin
 ## Contributors
 
 - **Anees Saheba** — [aneessaheba](https://github.com/aneessaheba)
-- **Jay Hemnani** — [jayhemnani9910](https://github.com/jayhemnani9910)
