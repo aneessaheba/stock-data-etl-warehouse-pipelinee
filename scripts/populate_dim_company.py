@@ -3,14 +3,17 @@ Seed dim_company with all 9 tracked NASDAQ stocks.
 Called by the populate_dim_company Airflow DAG (or run standalone).
 """
 
+import os
+
 import psycopg2
 
+# Read DB credentials from environment — set by docker-compose.yml or a local .env
 DB_CONN = dict(
-    host="timescaledb",
-    dbname="stockdw",
-    user="data226",
-    password="12345678",
-    port=5432,
+    host=os.getenv("DB_HOST",     "timescaledb"),
+    dbname=os.getenv("DB_NAME",   "stockdw"),
+    user=os.getenv("DB_USER",     "data226"),
+    password=os.getenv("DB_PASSWORD", "12345678"),
+    port=int(os.getenv("DB_PORT", "5432")),
 )
 
 COMPANIES = [

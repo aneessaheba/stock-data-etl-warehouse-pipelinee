@@ -4,18 +4,21 @@ Covers the full historical price range (AAPL starts 1980) and future dates.
 Called by the populate_dim_date Airflow DAG (or run standalone).
 """
 
-import psycopg2
+import os
 from datetime import date, timedelta
+
+import psycopg2
 
 START_DATE = date(1980, 1, 1)
 END_DATE   = date(2035, 12, 31)
 
+# Read DB credentials from environment — set by docker-compose.yml or a local .env
 DB_CONN = dict(
-    host="timescaledb",
-    dbname="stockdw",
-    user="data226",
-    password="12345678",
-    port=5432,
+    host=os.getenv("DB_HOST",     "timescaledb"),
+    dbname=os.getenv("DB_NAME",   "stockdw"),
+    user=os.getenv("DB_USER",     "data226"),
+    password=os.getenv("DB_PASSWORD", "12345678"),
+    port=int(os.getenv("DB_PORT", "5432")),
 )
 
 
