@@ -113,8 +113,8 @@ def create_schema(engine) -> None:
     );
 
     CREATE TABLE IF NOT EXISTS dim_financials (
-        ticker                    TEXT,
-        year                      INT,
+        ticker                    TEXT         NOT NULL REFERENCES dim_company(ticker),
+        year                      INT          NOT NULL,
         category                  TEXT,
         market_cap_b_usd          NUMERIC,
         revenue                   NUMERIC,
@@ -315,12 +315,18 @@ def load_to_postgres(
         engine = _get_engine()
         create_schema(engine)
 
-        # -- Truncate in reverse FK order -----------------------------------
+        # -- Truncate in FK dependency order (no CASCADE) -------------------
+        # Fact tables first (they hold the FK references), then dimensions.
+        # Avoids TRUNCATE CASCADE on dim_company which would silently wipe
+        # fact_stock_price_daily even when only dim data is being refreshed.
         with engine.begin() as conn:
-            conn.execute(text("TRUNCATE TABLE dim_financials CASCADE"))
-            # Cascades to fact_stock_price_daily (and fact_stock_price_monthly if present)
-            conn.execute(text("TRUNCATE TABLE dim_company CASCADE"))
-            conn.execute(text("TRUNCATE TABLE dim_date CASCADE"))
+            conn.execute(text(
+                "TRUNCATE TABLE fact_stock_price_daily, fact_stock_price_monthly "
+                "RESTART IDENTITY"
+            ))
+            conn.execute(text("TRUNCATE TABLE dim_financials RESTART IDENTITY"))
+            conn.execute(text("TRUNCATE TABLE dim_company    RESTART IDENTITY"))
+            conn.execute(text("TRUNCATE TABLE dim_date       RESTART IDENTITY"))
 
         # -- Load dim_company -----------------------------------------------
         dc = _prepare_dim_company(dim_company)
