@@ -1,0 +1,10 @@
+Symbol,Name,AssetType,Exchange,Sector,Industry,Country,Currency,MarketCapitalization,EPS,PERatio,DividendPerShare,Beta,FiscalYearEnd,OfficialSite
+AAPL,Apple Inc,Common Stock,NASDAQ,TECHNOLOGY,ELECTRONIC COMPUTERS,USA,USD,2959053160000,6.43,28.5,0.96,1.24,September,https://www.apple.com
+MSFT,Microsoft Corporation,Common Stock,NASDAQ,TECHNOLOGY,SERVICES-PREPACKAGED SOFTWARE,USA,USD,2734069121000,9.81,35.2,2.72,0.9,June,https://www.microsoft.com
+GOOGL,Alphabet Inc Class A,Common Stock,NASDAQ,TECHNOLOGY,"SERVICES-COMPUTER PROGRAMMING, DATA PROCESSING",USA,USD,1854733287000,5.8,25.1,0.0,1.06,December,https://www.abc.xyz
+AMZN,Amazon.com Inc,Common Stock,NASDAQ,TRADE & SERVICES,RETAIL-CATALOG & MAIL-ORDER HOUSES,USA,USD,1831806435000,2.9,60.4,0.0,1.18,December,https://www.amazon.com
+TSLA,Tesla Inc,Common Stock,NASDAQ,MANUFACTURING,MOTOR VEHICLES & PASSENGER CAR BODIES,USA,USD,776371372000,3.62,65.2,0.0,2.3,December,https://www.tesla.com
+META,Meta Platforms Inc,Common Stock,NASDAQ,TECHNOLOGY,"SERVICES-COMPUTER PROGRAMMING, DATA PROCESSING",USA,USD,1270579855000,14.87,23.8,0.0,1.2,December,https://www.meta.com
+NFLX,Netflix Inc,Common Stock,NASDAQ,TRADE & SERVICES,SERVICES-VIDEO TAPE RENTAL,USA,USD,416220414000,12.03,45.0,0.0,1.33,December,https://www.netflix.com
+NVDA,NVIDIA Corporation,Common Stock,NASDAQ,MANUFACTURING,SEMICONDUCTORS & RELATED DEVICES,USA,USD,2476355879000,11.93,52.6,0.16,1.68,January,https://www.nvidia.com
+INTC,Intel Corporation,Common Stock,NASDAQ,MANUFACTURING,SEMICONDUCTORS & RELATED DEVICES,USA,USD,82545967000,-0.47,,0.5,0.89,December,https://www.intel.com
