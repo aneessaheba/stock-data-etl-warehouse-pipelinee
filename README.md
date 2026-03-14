@@ -225,8 +225,8 @@ jupyter lab
 # CSV-only (no DB required) — uses cached data/
 python -m etl.pipeline --no-db
 
-# Force re-download from yfinance
-python -m etl.pipeline --refresh --no-db --start 2010-01-01 --end 2024-12-31
+# Force re-download from yfinance (end defaults to today if omitted)
+python -m etl.pipeline --refresh --no-db --start 2010-01-01
 
 # Full run including PostgreSQL/TimescaleDB load
 cp .env.example .env
@@ -311,9 +311,15 @@ TimescaleDB
   "high": 198.83,
   "low": 194.42,
   "close": 196.98,
-  "volume": 51334300
+  "volume": 51334300,
+  "daily_return_pct": -0.11,
+  "intraday_range": 4.41
 }
 ```
+
+> `daily_return_pct` = `(close − open) / open × 100` (intraday, open-to-close).
+> `intraday_range` = `high − low`. Both are computed by the producer before publishing.
+> `adj_close` is omitted from streaming messages — intraday bars have no split adjustment; the column is `NULL` for streaming-written rows.
 
 ### Run streaming manually (without Docker)
 
@@ -349,6 +355,8 @@ docker-compose ps
 | Zookeeper | `2181` | — |
 
 > **pgAdmin connection:** host = `timescaledb` (Docker service name), port = `5432`.
+
+> **Note — Airflow metadata DB:** In the default `docker-compose.yml` Airflow uses the same `stockdw` database for its own metadata tables. For production deployments, point `AIRFLOW__DATABASE__SQL_ALCHEMY_CONN` at a separate database (e.g. `airflow_meta`) so Airflow's internal queries don't compete with analytical workloads on the warehouse.
 
 ### Apply schema & load data
 
