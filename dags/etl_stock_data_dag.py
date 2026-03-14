@@ -10,27 +10,30 @@ Schedule: daily
 DB: TimescaleDB (PostgreSQL-compatible)
 """
 
+import gzip
+import json
+import os
+from datetime import datetime, timedelta
+
+import pandas as pd
+import psycopg2
+import yfinance as yf
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
-from datetime import datetime, timedelta
-import yfinance as yf
-import pandas as pd
-import json
-import os
-import gzip
-import psycopg2
+from psycopg2.extras import execute_values
 
 TICKERS_FILE = "/opt/airflow/dags/tickers.txt"
 with open(TICKERS_FILE, "r") as f:
     TICKERS = [line.strip() for line in f if line.strip()]
 
+# Read DB credentials from environment — injected by docker-compose.yml
 DB_CONN = dict(
-    host="timescaledb",
-    dbname="stockdw",
-    user="data226",
-    password="12345678",
-    port=5432,
+    host=os.getenv("DB_HOST", "timescaledb"),
+    dbname=os.getenv("DB_NAME", "stockdw"),
+    user=os.getenv("DB_USER", "data226"),
+    password=os.getenv("DB_PASSWORD", "12345678"),
+    port=int(os.getenv("DB_PORT", "5432")),
 )
 
 default_args = {
@@ -143,37 +146,39 @@ def load_data(ticker, ti):
         company_key = cur.fetchone()[0]
         conn.commit()
 
-    # Bulk upsert into fact_stock_price_daily
-    rows_loaded = 0
-    for idx, row in df.iterrows():
-        date = pd.to_datetime(idx).date()
-        cur.execute(
-            """
-            INSERT INTO fact_stock_price_daily
-                (date, company_key, open, high, low, close, volume, daily_return_pct, intraday_range)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (date, company_key) DO UPDATE SET
-                open              = EXCLUDED.open,
-                high              = EXCLUDED.high,
-                low               = EXCLUDED.low,
-                close             = EXCLUDED.close,
-                volume            = EXCLUDED.volume,
-                daily_return_pct  = EXCLUDED.daily_return_pct,
-                intraday_range    = EXCLUDED.intraday_range;
-            """,
-            (
-                date, company_key,
-                float(row[f"Open_{ticker}"]),
-                float(row[f"High_{ticker}"]),
-                float(row[f"Low_{ticker}"]),
-                float(row[f"Close_{ticker}"]),
-                int(row[f"Volume_{ticker}"]),
-                float(row.get(f"Daily_Return_Pct_{ticker}", 0)),
-                float(row.get(f"Intraday_Range_{ticker}", 0)),
-            ),
-        )
-        rows_loaded += 1
+    # Build rows list for bulk insert
+    rows = []
+    for idx, row_data in df.iterrows():
+        rows.append((
+            pd.to_datetime(idx).date(),
+            company_key,
+            float(row_data[f"Open_{ticker}"]),
+            float(row_data[f"High_{ticker}"]),
+            float(row_data[f"Low_{ticker}"]),
+            float(row_data[f"Close_{ticker}"]),
+            int(row_data[f"Volume_{ticker}"]),
+            float(row_data.get(f"Daily_Return_Pct_{ticker}", 0)),
+            float(row_data.get(f"Intraday_Range_{ticker}", 0)),
+        ))
 
+    # Single bulk upsert — replaces the original row-by-row loop
+    execute_values(
+        cur,
+        """
+        INSERT INTO fact_stock_price_daily
+            (date, company_key, open, high, low, close, volume, daily_return_pct, intraday_range)
+        VALUES %s
+        ON CONFLICT (date, company_key) DO UPDATE SET
+            open             = EXCLUDED.open,
+            high             = EXCLUDED.high,
+            low              = EXCLUDED.low,
+            close            = EXCLUDED.close,
+            volume           = EXCLUDED.volume,
+            daily_return_pct = EXCLUDED.daily_return_pct,
+            intraday_range   = EXCLUDED.intraday_range;
+        """,
+        rows,
+    )
     conn.commit()
     cur.close()
     conn.close()
@@ -186,7 +191,7 @@ def load_data(ticker, ti):
         if path and os.path.exists(path):
             os.remove(path)
 
-    print(f"✅ Loaded {rows_loaded:,} rows for {ticker}")
+    print(f"✅ Loaded {len(rows):,} rows for {ticker}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
