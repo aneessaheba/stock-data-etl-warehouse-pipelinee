@@ -5,6 +5,7 @@
 -- Star Schema:
 --   dim_company            — company master data (SCD Type 2 ready)
 --   dim_date               — calendar dimension
+--   dim_financials         — annual financial statements (FK → dim_company)
 --   fact_stock_price_daily — daily OHLCV (TimescaleDB hypertable)
 --   fact_stock_price_monthly — pre-aggregated monthly summaries
 --
@@ -25,20 +26,31 @@ DROP TABLE IF EXISTS dim_company               CASCADE;
 
 -- =============================================================================
 -- DIMENSION: Company  (SCD Type 2 — is_current + effective_date)
+-- Includes one-time financial snapshot cols populated by the ETL pipeline.
 -- =============================================================================
 CREATE TABLE dim_company (
-    company_key   SERIAL       PRIMARY KEY,
-    ticker        TEXT         NOT NULL UNIQUE,
-    company_name  TEXT         NOT NULL,
-    sector        TEXT,
-    industry      TEXT,
-    exchange      TEXT,
-    is_current    BOOLEAN      NOT NULL DEFAULT TRUE,
-    effective_date DATE        NOT NULL DEFAULT CURRENT_DATE
+    company_key        SERIAL       PRIMARY KEY,
+    ticker             TEXT         NOT NULL UNIQUE,
+    company_name       TEXT         NOT NULL,
+    sector             TEXT,
+    industry           TEXT,
+    exchange           TEXT,
+    country            TEXT,
+    currency           TEXT,
+    market_cap         BIGINT,
+    eps                NUMERIC,
+    pe_ratio           NUMERIC,
+    dividend_per_share NUMERIC,
+    beta               NUMERIC,
+    fiscal_year_end    TEXT,
+    official_site      TEXT,
+    is_current         BOOLEAN      NOT NULL DEFAULT TRUE,
+    effective_date     DATE         NOT NULL DEFAULT CURRENT_DATE
 );
 
 COMMENT ON TABLE dim_company IS
-    'Company master data — SCD Type 2. One active row per ticker (is_current=TRUE).';
+    'Company master data — SCD Type 2. One active row per ticker (is_current=TRUE). '
+    'Financial snapshot cols (market_cap, eps, beta, etc.) populated by ETL pipeline.';
 
 
 -- =============================================================================
@@ -60,10 +72,11 @@ COMMENT ON TABLE dim_date IS
 
 -- =============================================================================
 -- DIMENSION: Financial Statements  (annual, per company)
+-- FK to dim_company enforces referential integrity at DB level.
 -- =============================================================================
 CREATE TABLE dim_financials (
-    ticker                    TEXT,
-    year                      INT,
+    ticker                    TEXT         NOT NULL REFERENCES dim_company(ticker),
+    year                      INT          NOT NULL,
     category                  TEXT,
     market_cap_b_usd          NUMERIC,
     revenue                   NUMERIC,
@@ -89,11 +102,13 @@ CREATE TABLE dim_financials (
 );
 
 COMMENT ON TABLE dim_financials IS
-    'Annual financial statements (2009-2023). Source: Kaggle financial statements dataset.';
+    'Annual financial statements (2009-2023). Source: Kaggle financial statements dataset. '
+    'FK dim_financials.ticker → dim_company.ticker enforces referential integrity.';
 
 
 -- =============================================================================
 -- FACT: Daily Stock Prices  (TimescaleDB hypertable partitioned by date)
+-- adj_close is populated by the batch ETL path; NULL for streaming intraday rows.
 -- =============================================================================
 CREATE TABLE fact_stock_price_daily (
     date              DATE             NOT NULL,
@@ -102,9 +117,10 @@ CREATE TABLE fact_stock_price_daily (
     high              DOUBLE PRECISION NOT NULL,
     low               DOUBLE PRECISION NOT NULL,
     close             DOUBLE PRECISION NOT NULL,
+    adj_close         DOUBLE PRECISION,           -- NULL for streaming intraday rows
     volume            BIGINT           NOT NULL,
-    daily_return_pct  DOUBLE PRECISION,   -- (close - open) / open * 100
-    intraday_range    DOUBLE PRECISION,   -- high - low
+    daily_return_pct  DOUBLE PRECISION,           -- (close - open) / open * 100
+    intraday_range    DOUBLE PRECISION,           -- high - low
     PRIMARY KEY (date, company_key),
     FOREIGN KEY (date) REFERENCES dim_date(date)
 );
@@ -116,7 +132,8 @@ SELECT create_hypertable(
 );
 
 COMMENT ON TABLE fact_stock_price_daily IS
-    'Daily OHLCV price observations — TimescaleDB hypertable. Grain: (date, company_key).';
+    'Daily OHLCV price observations — TimescaleDB hypertable. Grain: (date, company_key). '
+    'adj_close is NULL for rows written by the streaming consumer (intraday bars have no split adjustment).';
 
 CREATE INDEX IF NOT EXISTS idx_daily_company ON fact_stock_price_daily (company_key, date DESC);
 
