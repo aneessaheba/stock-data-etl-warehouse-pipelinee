@@ -2,32 +2,35 @@
 Kafka Producer — Live Stock Data
 =================================
 Publishes real-time 1-minute OHLCV snapshots to the Kafka topic `stock-data`
-every 15 seconds via yfinance.
+every 15 seconds via yfinance. Also computes daily_return_pct and
+intraday_range so the consumer can write them directly without recalculating.
 
 Supported tickers: all symbols in TICKERS list below.
 Runs as a Docker container (see Dockerfile.producer).
 """
 
 import json
+import os
 import time
+
 import psycopg2
 from kafka import KafkaProducer
 from yfinance import Ticker
 from yfinance.exceptions import YFRateLimitError
 
-KAFKA_BROKER = "stock-data-platform-kafka:9092"
+KAFKA_BROKER = os.getenv("KAFKA_BROKER", "stock-data-platform-kafka:9092")
 TOPIC        = "stock-data"
 POLL_SECS    = 15
 
-# Tickers to stream live — extend as needed
 TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "META", "NFLX", "NVDA", "INTC"]
 
+# Read DB credentials from environment — injected by docker-compose.yml
 DB_CONN = dict(
-    host="timescaledb",
-    dbname="stockdw",
-    user="data226",
-    password="12345678",
-    port=5432,
+    host=os.getenv("DB_HOST",     "timescaledb"),
+    dbname=os.getenv("DB_NAME",   "stockdw"),
+    user=os.getenv("DB_USER",     "data226"),
+    password=os.getenv("DB_PASSWORD", "12345678"),
+    port=int(os.getenv("DB_PORT", "5432")),
 )
 
 
@@ -60,37 +63,43 @@ def _connect_db():
             time.sleep(5)
 
 
-def _get_company_key(ticker: str) -> int | None:
-    conn = _connect_db()
+def _build_company_keys(conn) -> dict[str, int]:
+    """
+    Query dim_company once at startup and return ticker→company_key mapping.
+    Retries until all tickers are present (waits for populate_dim_company DAG).
+    Uses a single persistent connection — no new connection per ticker.
+    """
     cur = conn.cursor()
-    cur.execute(
-        "SELECT company_key FROM dim_company WHERE ticker=%s AND is_current=TRUE",
-        (ticker,),
-    )
-    row = cur.fetchone()
+    company_keys: dict[str, int] = {}
+    missing = list(TICKERS)
+
+    while missing:
+        for ticker in list(missing):
+            cur.execute(
+                "SELECT company_key FROM dim_company WHERE ticker=%s AND is_current=TRUE",
+                (ticker,),
+            )
+            row = cur.fetchone()
+            if row:
+                company_keys[ticker] = row[0]
+                missing.remove(ticker)
+                print(f"  company_key for {ticker}: {row[0]}")
+
+        if missing:
+            print(f"⏳ Waiting for dim_company entries: {missing} — retrying in 10s …")
+            time.sleep(10)
+
     cur.close()
-    conn.close()
-    return row[0] if row else None
+    return company_keys
 
 
 # ── Main ───────────────────────────────────────────────────────────────────
 
 def main():
-    producer = _connect_kafka()
-
-    # Build company_key map — wait until all tickers are seeded
-    company_keys: dict[str, int] = {}
-    while len(company_keys) < len(TICKERS):
-        missing = [t for t in TICKERS if t not in company_keys]
-        for ticker in missing:
-            key = _get_company_key(ticker)
-            if key is not None:
-                company_keys[ticker] = key
-                print(f"  company_key for {ticker}: {key}")
-        if len(company_keys) < len(TICKERS):
-            still_missing = [t for t in TICKERS if t not in company_keys]
-            print(f"⏳ Waiting for dim_company entries: {still_missing} — retrying in 10s …")
-            time.sleep(10)
+    producer  = _connect_kafka()
+    db_conn   = _connect_db()
+    company_keys = _build_company_keys(db_conn)
+    db_conn.close()  # No longer needed after the initial key lookup
 
     print(f"✅ All company keys loaded. Starting live stream for {TICKERS}")
 
@@ -103,18 +112,27 @@ def main():
                     continue
 
                 last_ts = data.index[-1]
+                open_p  = float(data["Open"].iloc[-1])
+                high_p  = float(data["High"].iloc[-1])
+                low_p   = float(data["Low"].iloc[-1])
+                close_p = float(data["Close"].iloc[-1])
+
                 payload = {
-                    "company_key": company_keys[ticker],
-                    "ticker":      ticker,
-                    "date":        last_ts.date().isoformat(),
-                    "open":        float(data["Open"].iloc[-1]),
-                    "high":        float(data["High"].iloc[-1]),
-                    "low":         float(data["Low"].iloc[-1]),
-                    "close":       float(data["Close"].iloc[-1]),
-                    "volume":      int(data["Volume"].iloc[-1]),
+                    "company_key":      company_keys[ticker],
+                    "ticker":           ticker,
+                    "date":             last_ts.date().isoformat(),
+                    "open":             open_p,
+                    "high":             high_p,
+                    "low":              low_p,
+                    "close":            close_p,
+                    "volume":           int(data["Volume"].iloc[-1]),
+                    # Derived cols computed here so consumer writes them directly
+                    "daily_return_pct": round((close_p - open_p) / open_p * 100, 4)
+                                        if open_p else 0.0,
+                    "intraday_range":   round(high_p - low_p, 4),
                 }
                 producer.send(TOPIC, value=payload)
-                print(f"📤 Sent {ticker}: close={payload['close']:.2f}")
+                print(f"📤 Sent {ticker}: close={close_p:.2f}")
 
             except YFRateLimitError:
                 print(f"⏳ Rate-limited for {ticker}. Backing off 60s …")

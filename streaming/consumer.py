@@ -3,26 +3,31 @@ Kafka Consumer — Write to TimescaleDB
 ======================================
 Reads messages from the `stock-data` Kafka topic published by producer.py
 and upserts them into fact_stock_price_daily in TimescaleDB.
+Includes daily_return_pct and intraday_range (computed by the producer).
 
 Runs as a Docker container (see Dockerfile.consumer).
 """
 
 import json
+import os
 import time
+
 import psycopg2
 from kafka import KafkaConsumer
 
-KAFKA_BROKER = "stock-data-platform-kafka:9092"
+KAFKA_BROKER = os.getenv("KAFKA_BROKER", "stock-data-platform-kafka:9092")
 TOPIC        = "stock-data"
 GROUP_ID     = "stock-data-consumer"
 
+# Read DB credentials from environment — injected by docker-compose.yml
 DB_CONN = dict(
-    host="timescaledb",
-    dbname="stockdw",
-    user="data226",
-    password="12345678",
-    port=5432,
+    host=os.getenv("DB_HOST",     "timescaledb"),
+    dbname=os.getenv("DB_NAME",   "stockdw"),
+    user=os.getenv("DB_USER",     "data226"),
+    password=os.getenv("DB_PASSWORD", "12345678"),
+    port=int(os.getenv("DB_PORT", "5432")),
 )
+
 
 # ── Wait for Kafka ─────────────────────────────────────────────────────────
 
@@ -72,14 +77,17 @@ def main():
             cur.execute(
                 """
                 INSERT INTO fact_stock_price_daily
-                    (date, company_key, open, high, low, close, volume)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    (date, company_key, open, high, low, close, volume,
+                     daily_return_pct, intraday_range)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (date, company_key) DO UPDATE SET
-                    open   = EXCLUDED.open,
-                    high   = EXCLUDED.high,
-                    low    = EXCLUDED.low,
-                    close  = EXCLUDED.close,
-                    volume = EXCLUDED.volume;
+                    open             = EXCLUDED.open,
+                    high             = EXCLUDED.high,
+                    low              = EXCLUDED.low,
+                    close            = EXCLUDED.close,
+                    volume           = EXCLUDED.volume,
+                    daily_return_pct = EXCLUDED.daily_return_pct,
+                    intraday_range   = EXCLUDED.intraday_range;
                 """,
                 (
                     data["date"],
@@ -89,6 +97,8 @@ def main():
                     data["low"],
                     data["close"],
                     data["volume"],
+                    data.get("daily_return_pct", 0.0),
+                    data.get("intraday_range",   0.0),
                 ),
             )
             conn.commit()
