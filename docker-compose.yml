@@ -32,6 +32,12 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__FERNET_KEY: f8nSfkKjNwYaJmd_Tr6JvACFpVoOgmHiSlXfiUiQvmM=
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    # DB credentials read by DAG Python code via os.getenv()
+    DB_HOST: timescaledb
+    DB_PORT: "5432"
+    DB_NAME: stockdw
+    DB_USER: data226
+    DB_PASSWORD: "12345678"
   volumes:
     - ./dags:/opt/airflow/dags
     - ./scripts:/opt/airflow/scripts
@@ -146,6 +152,13 @@ services:
     depends_on:
       - kafka
       - timescaledb
+    environment:
+      DB_HOST: timescaledb
+      DB_PORT: "5432"
+      DB_NAME: stockdw
+      DB_USER: data226
+      DB_PASSWORD: "12345678"
+      KAFKA_BROKER: "stock-data-platform-kafka:9092"
 
   # ── Kafka Consumer (Kafka → TimescaleDB) ───────────────────────────────────
   kafka-consumer:
@@ -157,6 +170,13 @@ services:
     depends_on:
       - kafka
       - timescaledb
+    environment:
+      DB_HOST: timescaledb
+      DB_PORT: "5432"
+      DB_NAME: stockdw
+      DB_USER: data226
+      DB_PASSWORD: "12345678"
+      KAFKA_BROKER: "stock-data-platform-kafka:9092"
 
 volumes:
   timescale_data:
