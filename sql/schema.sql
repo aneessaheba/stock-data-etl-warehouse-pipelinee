@@ -18,6 +18,7 @@ CREATE EXTENSION IF NOT EXISTS timescaledb;
 -- Drop in reverse FK order (safe re-run)
 DROP TABLE IF EXISTS fact_stock_price_monthly CASCADE;
 DROP TABLE IF EXISTS fact_stock_price_daily    CASCADE;
+DROP TABLE IF EXISTS dim_financials            CASCADE;
 DROP TABLE IF EXISTS dim_date                  CASCADE;
 DROP TABLE IF EXISTS dim_company               CASCADE;
 
@@ -55,6 +56,40 @@ CREATE TABLE dim_date (
 
 COMMENT ON TABLE dim_date IS
     'Calendar dimension — one row per day (1980-01-01 to 2035-12-31).';
+
+
+-- =============================================================================
+-- DIMENSION: Financial Statements  (annual, per company)
+-- =============================================================================
+CREATE TABLE dim_financials (
+    ticker                    TEXT,
+    year                      INT,
+    category                  TEXT,
+    market_cap_b_usd          NUMERIC,
+    revenue                   NUMERIC,
+    gross_profit              NUMERIC,
+    net_income                NUMERIC,
+    earning_per_share         NUMERIC,
+    ebitda                    NUMERIC,
+    share_holder_equity       NUMERIC,
+    cash_flow_operating       NUMERIC,
+    cash_flow_investing       NUMERIC,
+    cash_flow_financial       NUMERIC,
+    current_ratio             NUMERIC,
+    debt_equity_ratio         NUMERIC,
+    roe                       NUMERIC,
+    roa                       NUMERIC,
+    roi                       NUMERIC,
+    net_profit_margin         NUMERIC,
+    free_cash_flow_per_share  NUMERIC,
+    return_on_tangible_equity NUMERIC,
+    number_of_employees       INT,
+    inflation_rate_us         NUMERIC,
+    PRIMARY KEY (ticker, year)
+);
+
+COMMENT ON TABLE dim_financials IS
+    'Annual financial statements (2009-2023). Source: Kaggle financial statements dataset.';
 
 
 -- =============================================================================
