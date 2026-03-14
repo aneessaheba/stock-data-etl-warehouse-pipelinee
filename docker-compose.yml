@@ -1,19 +1,67 @@
 version: '3.8'
 
+# =============================================================================
+# Stock Market Data Warehouse — Full Stack
+# =============================================================================
+# Services:
+#   timescaledb       — PostgreSQL 14 + TimescaleDB (primary data store)
+#   pgadmin           — Web UI for TimescaleDB
+#   airflow-webserver — Airflow UI (localhost:8081)
+#   airflow-scheduler — Airflow task scheduler
+#   zookeeper         — Kafka coordination
+#   kafka             — Message broker for live streaming
+#   kafka-producer    — Publishes live yfinance data to Kafka
+#   kafka-consumer    — Writes Kafka messages to TimescaleDB
+#
+# Quick start:
+#   docker-compose up -d
+#   Open Airflow:  http://localhost:8081  (admin / admin)
+#   Open pgAdmin:  http://localhost:5050  (admin@admin.com / admin123)
+# =============================================================================
+
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.7.3
+  restart: always
+  depends_on:
+    - timescaledb
+  environment:
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://data226:12345678@timescaledb:5432/stockdw
+    AIRFLOW_CONN_TIMESCALEDB_CONN: postgresql://data226:12345678@timescaledb:5432/stockdw
+    AIRFLOW__WEBSERVER__SECRET_KEY: stock_warehouse_secret_key_2025
+    AIRFLOW__CORE__FERNET_KEY: f8nSfkKjNwYaJmd_Tr6JvACFpVoOgmHiSlXfiUiQvmM=
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./scripts:/opt/airflow/scripts
+    - ./sql:/opt/airflow/sql
+    - ./requirements.txt:/requirements.txt
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
 services:
-  db:
-    image: postgres:15
-    container_name: postgres_container
+
+  # ── TimescaleDB (PostgreSQL 14 + time-series extension) ────────────────────
+  timescaledb:
+    image: timescale/timescaledb:latest-pg14
+    container_name: timescaledb
     restart: always
-    environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: admin123
-      POSTGRES_DB: stock_db
     ports:
       - "5432:5432"
+    environment:
+      POSTGRES_USER: data226
+      POSTGRES_PASSWORD: 12345678
+      POSTGRES_DB: stockdw
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - timescale_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U data226 -d stockdw"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
+  # ── pgAdmin 4 ───────────────────────────────────────────────────────────────
   pgadmin:
     image: dpage/pgadmin4
     container_name: pgadmin_container
@@ -24,10 +72,92 @@ services:
     ports:
       - "5050:80"
     depends_on:
-      - db
+      - timescaledb
     volumes:
       - pgadmin_data:/var/lib/pgadmin
 
+  # ── Airflow Webserver ───────────────────────────────────────────────────────
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: airflow-webserver
+    ports:
+      - "8081:8080"
+    command: >
+      bash -c "
+      pip install -r /requirements.txt &&
+      airflow db migrate &&
+      (airflow users create
+        --username admin --password admin
+        --firstname Airflow --lastname Admin
+        --role Admin --email admin@example.com || true) &&
+      airflow webserver"
+
+  # ── Airflow Scheduler ──────────────────────────────────────────────────────
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: airflow-scheduler
+    command: >
+      bash -c "
+      pip install -r /requirements.txt &&
+      airflow db migrate &&
+      airflow scheduler"
+
+  # ── Zookeeper (Kafka dependency) ───────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: stock-data-platform-zookeeper
+    restart: always
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  # ── Kafka Broker ───────────────────────────────────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    container_name: stock-data-platform-kafka
+    restart: always
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://stock-data-platform-kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ── Kafka Producer (live yfinance → Kafka) ─────────────────────────────────
+  kafka-producer:
+    build:
+      context: .
+      dockerfile: Dockerfile.producer
+    container_name: stock-data-platform-kafka-producer
+    restart: always
+    depends_on:
+      - kafka
+      - timescaledb
+
+  # ── Kafka Consumer (Kafka → TimescaleDB) ───────────────────────────────────
+  kafka-consumer:
+    build:
+      context: .
+      dockerfile: Dockerfile.consumer
+    container_name: stock-data-platform-kafka-consumer
+    restart: always
+    depends_on:
+      - kafka
+      - timescaledb
+
 volumes:
-  pgdata:
+  timescale_data:
   pgadmin_data:
